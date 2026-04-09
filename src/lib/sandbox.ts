@@ -1,3 +1,6 @@
+import chalk from 'chalk';
+import { apiRequest } from './http.js';
+
 export function extractSandboxId(rpcUrl: string): string {
   // https://rpc.buildbear.io/yielding-mysterio-055e0fb6 → yielding-mysterio-055e0fb6
   const match = rpcUrl.match(/rpc\.buildbear\.io\/([^/?#]+)/);
@@ -7,4 +10,33 @@ export function extractSandboxId(rpcUrl: string): string {
     );
   }
   return match[1];
+}
+
+interface SandboxStatusResponse {
+  sandboxId: string;
+  status: string;
+  forkingDetails?: { chainId: number; blockNumber: number };
+  chainId?: number;
+  rpcUrl?: string;
+  explorerUrl?: string;
+}
+
+export async function checkSandboxLive(rpcUrl: string): Promise<void> {
+  const sandboxId = extractSandboxId(rpcUrl);
+  const data = await apiRequest<SandboxStatusResponse>(`/v1/buildbear-sandbox/${sandboxId}`);
+
+  if (data.status === 'live') {
+    return;
+  }
+
+  if (data.status === 'pending') {
+    console.warn(
+      chalk.yellow(`Warning: Sandbox ${sandboxId} is still starting up (status: pending). Command may fail if not ready yet.`)
+    );
+    return;
+  }
+
+  throw new Error(
+    `Sandbox ${sandboxId} is not active (status: ${data.status}). Create a new one with: buildbear sandbox create`
+  );
 }

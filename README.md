@@ -23,7 +23,7 @@ Requires Node.js 20+.
 buildbear auth setup
 
 # 2. Create a sandbox
-buildbear sandbox create --network mainnet --name my-env
+buildbear sandbox create --network 1 --name my-env
 # → RPC URL: https://rpc.buildbear.io/yielding-mysterio-055e0fb6
 
 RPC=https://rpc.buildbear.io/yielding-mysterio-055e0fb6
@@ -56,7 +56,7 @@ buildbear auth status     # Show auth state
 ### Sandbox Management
 
 ```bash
-buildbear sandbox create --network <chainId|name> [--fork-block N] [--chain-id N] [--prefund addr1,addr2]
+buildbear sandbox create --network <chainId> [--name label] [--fork-block N] [--chain-id N] [--prefund addr1,addr2]
 buildbear sandbox list
 buildbear sandbox delete <rpcUrl>
 buildbear sandbox networks
@@ -134,7 +134,7 @@ Run `buildbear init` in your project directory to create a local config file. Wh
 
 - name: Create sandbox
   run: |
-    RPC_URL=$(buildbear sandbox create --network mainnet --json | jq -r .rpcUrl)
+    RPC_URL=$(buildbear sandbox create --network 1 --json | jq -r .rpcUrl)
     echo "BB_RPC_URL=$RPC_URL" >> $GITHUB_ENV
 
 - name: Run tests
@@ -149,7 +149,7 @@ Run `buildbear init` in your project directory to create a local config file. Wh
 
 ```bash
 # Always use --json for machine-readable output
-RPC_URL=$(buildbear sandbox create --network mainnet --json | jq -r .rpcUrl)
+RPC_URL=$(buildbear sandbox create --network 1 --json | jq -r .rpcUrl)
 buildbear faucet native $RPC_URL --address 0xWallet --amount 100 --json
 SNAPSHOT=$(buildbear snapshot take $RPC_URL --json | jq -r .snapshotId)
 buildbear snapshot revert $RPC_URL --snapshot $SNAPSHOT --json

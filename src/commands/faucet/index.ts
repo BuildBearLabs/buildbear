@@ -1,23 +1,31 @@
 import { Command } from 'commander';
 import { rpcRequest } from '../../lib/http.js';
-import { extractSandboxId } from '../../lib/sandbox.js';
+import { checkSandboxLive } from '../../lib/sandbox.js';
 import { printJson, printSuccess, exitWithError } from '../../lib/output.js';
+import { getProjectRpcUrl } from '../../lib/config.js';
 
 export function registerFaucetCommands(program: Command): void {
   const faucet = program.command('faucet').description('Fund native or ERC-20 tokens in a sandbox');
 
   faucet
-    .command('native <rpcUrl>')
+    .command('native [rpcUrl]')
     .description('Fund native tokens (ETH, MATIC, etc.) to a wallet')
     .requiredOption('--address <walletAddress>', 'Wallet address to fund')
     .option('--amount <amountInEther>', 'Amount in ether (default: 1)', '1')
     .option('--json', 'Output as JSON')
     .option('--quiet', 'Suppress output except errors')
     .action(async (
-      rpcUrl: string,
+      rpcUrl: string | undefined,
       opts: { address: string; amount: string; json?: boolean; quiet?: boolean }
     ) => {
       try {
+        if (!rpcUrl) {
+          rpcUrl = getProjectRpcUrl() ?? undefined;
+          if (!rpcUrl) {
+            throw new Error('No RPC URL provided and no .buildbear.json found in current directory. Run buildbear init or pass an RPC URL.');
+          }
+        }
+        await checkSandboxLive(rpcUrl);
         // Convert ether to wei (use BigInt to avoid float precision issues)
         const amountEther = parseFloat(opts.amount);
         if (isNaN(amountEther) || amountEther <= 0) {
@@ -46,7 +54,7 @@ export function registerFaucetCommands(program: Command): void {
     });
 
   faucet
-    .command('erc20 <rpcUrl>')
+    .command('erc20 [rpcUrl]')
     .description('Mint ERC-20 tokens to a wallet')
     .requiredOption('--token <contractAddress>', 'ERC-20 token contract address')
     .requiredOption('--address <walletAddress>', 'Wallet address to fund')
@@ -54,10 +62,17 @@ export function registerFaucetCommands(program: Command): void {
     .option('--json', 'Output as JSON')
     .option('--quiet', 'Suppress output except errors')
     .action(async (
-      rpcUrl: string,
+      rpcUrl: string | undefined,
       opts: { token: string; address: string; amount: string; json?: boolean; quiet?: boolean }
     ) => {
       try {
+        if (!rpcUrl) {
+          rpcUrl = getProjectRpcUrl() ?? undefined;
+          if (!rpcUrl) {
+            throw new Error('No RPC URL provided and no .buildbear.json found in current directory. Run buildbear init or pass an RPC URL.');
+          }
+        }
+        await checkSandboxLive(rpcUrl);
         // Use BigInt arithmetic for token amounts to avoid float precision loss
         const amountNum = parseFloat(opts.amount);
         if (isNaN(amountNum) || amountNum <= 0) {

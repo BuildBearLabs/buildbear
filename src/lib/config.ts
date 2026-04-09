@@ -57,3 +57,23 @@ export function isAuthenticated(): boolean {
 export function getConfigFilePath(): string {
   return CONFIG_FILE;
 }
+
+interface ProjectConfig {
+  rpcUrl?: string;
+  forkChainId?: number;
+  [key: string]: unknown;
+}
+
+export function getProjectRpcUrl(): string | null {
+  const projectConfigPath = path.join(process.cwd(), '.buildbear.json');
+  if (!fs.existsSync(projectConfigPath)) {
+    return null;
+  }
+  try {
+    const raw = fs.readFileSync(projectConfigPath, 'utf-8');
+    const config = JSON.parse(raw) as ProjectConfig;
+    return config.rpcUrl ?? null;
+  } catch {
+    return null;
+  }
+}

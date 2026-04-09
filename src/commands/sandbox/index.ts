@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import { apiRequest } from '../../lib/http.js';
 import { extractSandboxId } from '../../lib/sandbox.js';
 import { printJson, printSuccess, printTable, exitWithError } from '../../lib/output.js';
+import { getProjectRpcUrl } from '../../lib/config.js';
 
 interface SandboxCreateResponse {
   status: string;
@@ -57,11 +58,11 @@ export function registerSandboxCommands(program: Command): void {
   sandbox
     .command('create')
     .description('Create a new sandbox, prints RPC URL on success')
-    .option('--network <chainId>', 'Chain ID or network name to fork from')
+    .option('--network <chainId>', 'Chain ID of the network to fork (e.g. 1 for Ethereum, 10 for Optimism). Run "buildbear sandbox networks" to list available chain IDs')
     .option('--fork-block <blockNumber>', 'Block number to fork from')
     .option('--chain-id <customChainId>', 'Custom chain ID for the sandbox')
     .option('--prefund <addresses>', 'Comma-separated addresses to prefund')
-    .option('--name <label>', 'Label for this sandbox (stored locally)')
+    .option('--name <label>', 'Human-readable name for this sandbox')
     .option('--json', 'Output as JSON')
     .option('--quiet', 'Suppress output except errors')
     .action(async (opts: {
@@ -77,39 +78,19 @@ export function registerSandboxCommands(program: Command): void {
         const body: Record<string, unknown> = {};
 
         if (opts.network) {
-          // Accept numeric chainId or name; look up by name if needed
           const chainId = parseInt(opts.network, 10);
-          if (!isNaN(chainId)) {
-            body.chainId = chainId;
-          } else {
-            // Try to resolve network name to chainId
-            const chains = await apiRequest<NetworkGroup[]>('/v1/buildbear-sandbox/chains');
-            const normalised = opts.network.toLowerCase();
-            let resolved: string | undefined;
-            for (const group of chains) {
-              for (const opt of group.options) {
-                if (
-                  opt.label.toLowerCase().includes(normalised) ||
-                  group.name.toLowerCase() === normalised
-                ) {
-                  resolved = opt.value;
-                  break;
-                }
-              }
-              if (resolved) break;
-            }
-            if (!resolved) {
-              throw new Error(
-                `Unknown network '${opts.network}'. Run 'buildbear sandbox networks' to see available options.`
-              );
-            }
-            body.chainId = parseInt(resolved, 10);
+          if (isNaN(chainId)) {
+            throw new Error(
+              `--network requires a numeric chain ID (e.g. 1 for Ethereum Mainnet, 10 for Optimism). Run 'buildbear sandbox networks' to list available chain IDs.`
+            );
           }
+          body.chainId = chainId;
         }
 
         if (opts.forkBlock) body.blockNumber = parseInt(opts.forkBlock, 10);
         if (opts.chainId) body.customChainId = parseInt(opts.chainId, 10);
         if (opts.prefund) body.prefund = opts.prefund.split(',').map((a) => a.trim());
+        if (opts.name) body.name = opts.name;
 
         const result = await apiRequest<SandboxCreateResponse>('/v1/buildbear-sandbox', {
           method: 'POST',
@@ -123,6 +104,7 @@ export function registerSandboxCommands(program: Command): void {
 
         printSuccess('Sandbox created', opts.quiet ?? false);
         if (!opts.quiet) {
+          if (opts.name) console.log(`  Name:      ${chalk.bold(opts.name)}`);
           console.log(`  RPC URL:   ${chalk.cyan(result.rpcUrl)}`);
           console.log(`  Explorer:  ${chalk.cyan(result.explorerUrl)}`);
           console.log(`  Faucet:    ${chalk.cyan(result.faucetUrl)}`);
@@ -198,13 +180,22 @@ export function registerSandboxCommands(program: Command): void {
         const chains = await apiRequest<NetworkGroup[]>('/v1/buildbear-sandbox/chains');
 
         if (opts.json) {
-          printJson(chains);
+          // Strip networkRpc — network-level RPC URLs are private infrastructure
+          const sanitised = chains.map((group) => ({
+            name: group.name,
+            id: group.id,
+            options: group.options.map(({ label, value }) => ({ label, value })),
+          }));
+          printJson(sanitised);
           return;
         }
 
         const rows: string[][] = [];
+        const seenChainIds = new Set<string>();
         for (const group of chains) {
           for (const opt of group.options) {
+            if (seenChainIds.has(opt.value)) continue;
+            seenChainIds.add(opt.value);
             rows.push([group.name, opt.label, opt.value]);
           }
         }
@@ -217,12 +208,18 @@ export function registerSandboxCommands(program: Command): void {
 
   // `buildbear status <rpcUrl>` — top-level but logically related to sandbox
   program
-    .command('status <rpcUrl>')
+    .command('status [rpcUrl]')
     .description('Quick health check for a sandbox (live/pending/dead)')
     .option('--json', 'Output as JSON')
     .option('--quiet', 'Suppress output except errors')
-    .action(async (rpcUrl: string, opts: { json?: boolean; quiet?: boolean }) => {
+    .action(async (rpcUrl: string | undefined, opts: { json?: boolean; quiet?: boolean }) => {
       try {
+        if (!rpcUrl) {
+          rpcUrl = getProjectRpcUrl() ?? undefined;
+          if (!rpcUrl) {
+            throw new Error('No RPC URL provided and no .buildbear.json found in current directory. Run buildbear init or pass an RPC URL.');
+          }
+        }
         const sandboxId = extractSandboxId(rpcUrl);
         const result = await apiRequest<SandboxDetailsResponse>(
           `/v1/buildbear-sandbox/${sandboxId}`

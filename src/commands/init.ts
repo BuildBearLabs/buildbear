@@ -12,6 +12,7 @@ interface ProjectConfig {
   rpcUrl: string;
   network?: string;
   chainId?: number;
+  forkChainId?: number;
   explorerUrl?: string;
 }
 
@@ -61,8 +62,11 @@ export function registerInitCommand(program: Command): void {
         const chains = await apiRequest<NetworkGroup[]>('/v1/buildbear-sandbox/chains');
         const networkList: string[] = [];
         const networkMap: Record<string, string> = {};
+        const seenChainIds = new Set<string>();
         for (const group of chains) {
           for (const opt of group.options) {
+            if (seenChainIds.has(opt.value)) continue;
+            seenChainIds.add(opt.value);
             networkList.push(`${opt.label} (${opt.value})`);
             networkMap[opt.value] = opt.label;
           }
@@ -72,19 +76,13 @@ export function registerInitCommand(program: Command): void {
 
         console.log(chalk.bold('\n🐻 BuildBear Project Setup\n'));
         console.log('Available networks:');
-        networkList.forEach((n, i) => console.log(`  ${i + 1}. ${n}`));
+        networkList.forEach((n) => console.log(`  ${n}`));
         console.log();
 
-        const networkInput = await ask(rl, 'Chain ID or number from list above: ');
+        const networkInput = await ask(rl, 'Chain ID: ');
         let chainId: number;
-        const listIndex = parseInt(networkInput, 10) - 1;
-        if (!isNaN(listIndex) && listIndex >= 0 && listIndex < networkList.length) {
-          const allOptions: NetworkOption[] = chains.flatMap((g) => g.options);
-          chainId = parseInt(allOptions[listIndex].value, 10);
-        } else {
-          chainId = parseInt(networkInput, 10);
-          if (isNaN(chainId)) throw new Error(`Invalid chain ID: ${networkInput}`);
-        }
+        chainId = parseInt(networkInput, 10);
+        if (isNaN(chainId)) throw new Error(`Invalid chain ID: ${networkInput}`);
 
         const forkBlockInput = await ask(rl, 'Fork block number (leave blank for latest): ');
         const customChainIdInput = await ask(rl, 'Custom chain ID (leave blank to use default): ');
@@ -107,6 +105,7 @@ export function registerInitCommand(program: Command): void {
           rpcUrl: result.rpcUrl,
           network: networkMap[String(chainId)] ?? String(chainId),
           chainId: result.chainId,
+          forkChainId: chainId,
           explorerUrl: result.explorerUrl,
         };
 
