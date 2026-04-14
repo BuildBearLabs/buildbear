@@ -180,7 +180,6 @@ export function registerSandboxCommands(program: Command): void {
         const chains = await apiRequest<NetworkGroup[]>('/v1/buildbear-sandbox/chains');
 
         if (opts.json) {
-          // Strip networkRpc — network-level RPC URLs are private infrastructure
           const sanitised = chains.map((group) => ({
             name: group.name,
             id: group.id,

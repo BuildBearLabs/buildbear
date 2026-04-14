@@ -60,21 +60,26 @@ buildbear sandbox create --network <chainId> [--name label] [--fork-block N] [--
 buildbear sandbox list
 buildbear sandbox delete <rpcUrl>
 buildbear sandbox networks
-buildbear status <rpcUrl>
+```
+
+### Status
+
+```bash
+buildbear status [rpcUrl]   # Quick health check (live/pending/dead). Falls back to .buildbear.json
 ```
 
 ### Faucet
 
 ```bash
-buildbear faucet native <rpcUrl> --address <wallet> --amount <ether>
-buildbear faucet erc20 <rpcUrl> --token <contractAddr> --address <wallet> --amount <amount>
+buildbear faucet native [rpcUrl] --address <wallet> [--amount <ether>]     # default: 1 ETH
+buildbear faucet erc20 [rpcUrl] --token <contractAddr> --address <wallet> [--amount <amount>]  # default: 1000
 ```
 
 ### Snapshots
 
 ```bash
-buildbear snapshot take <rpcUrl>
-buildbear snapshot revert <rpcUrl> --snapshot <snapshotId>
+buildbear snapshot take [rpcUrl]
+buildbear snapshot revert [rpcUrl] --snapshot <snapshotId>
 ```
 
 ### Contracts
@@ -82,23 +87,27 @@ buildbear snapshot revert <rpcUrl> --snapshot <snapshotId>
 ```bash
 buildbear contract source <rpcUrl> --address <contractAddr>
 buildbear contract abi <rpcUrl> --address <contractAddr>
-buildbear contract verify <rpcUrl> --address <contractAddr> --type etherscan|sourcify
+buildbear contract verify <rpcUrl> --address <contractAddr> [--type etherscan|sourcify]  # default: etherscan
 ```
 
 ### Utilities
 
 ```bash
-buildbear rpc <rpcUrl> --method <method> --params '[...]'  # JSON-RPC passthrough
-buildbear init                                              # Interactive project setup
+buildbear rpc [rpcUrl] --method <method> [--params '[...]']   # JSON-RPC passthrough (supports @file.json)
+buildbear init                                                 # Interactive project setup
 buildbear --version
 buildbear --help
 ```
 
+When `[rpcUrl]` is optional, the CLI reads it from `.buildbear.json` in the current directory if present.
+
 ## Global Flags
 
-All commands support:
+Most commands support:
 - `--json` — machine-readable JSON output (for CI and AI agents)
 - `--quiet` — suppress all output except errors
+
+Note: `auth setup`, `auth login`, `auth logout`, and `init` do not support `--quiet`.
 
 ## Authentication
 
@@ -120,6 +129,7 @@ Run `buildbear init` in your project directory to create a local config file. Wh
   "rpcUrl": "https://rpc.buildbear.io/yielding-mysterio-055e0fb6",
   "network": "Ethereum Mainnet",
   "chainId": 1234,
+  "forkChainId": 1,
   "explorerUrl": "https://explorer.buildbear.io/yielding-mysterio-055e0fb6"
 }
 ```
