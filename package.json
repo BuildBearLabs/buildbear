@@ -1,6 +1,6 @@
 {
   "name": "buildbear",
-  "version": "0.1.0",
+  "version": "1.1.0",
   "description": "BuildBear CLI — manage sandboxes, faucets, snapshots, and contracts from the terminal",
   "main": "dist/index.js",
   "bin": {
@@ -16,7 +16,12 @@
     "dev": "ts-node src/index.ts",
     "prepublishOnly": "npm run build"
   },
-  "keywords": ["buildbear", "sandbox", "blockchain", "cli"],
+  "keywords": [
+    "buildbear",
+    "sandbox",
+    "blockchain",
+    "cli"
+  ],
   "license": "MIT",
   "dependencies": {
     "chalk": "^5.3.0",
