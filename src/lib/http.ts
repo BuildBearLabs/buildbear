@@ -110,7 +110,11 @@ export async function rpcRequest<T>(
   const result = await response.json() as { result?: T; error?: { message: string } };
 
   if (result.error) {
-    throw new Error(`RPC error: ${result.error.message}`);
+    const msg = result.error.message ?? '';
+    if (/[Dd]eserialization|did not match any variant/i.test(msg)) {
+      throw new Error(`Invalid params for method: ${method}`);
+    }
+    throw new Error(`RPC error: ${msg}`);
   }
 
   return result.result as T;
