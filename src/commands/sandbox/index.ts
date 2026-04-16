@@ -238,8 +238,11 @@ export function registerSandboxCommands(program: Command): void {
           `/v1/buildbear-sandbox/${sandboxId}`
         );
 
+        const isHealthy = result.status === 'live' || result.status === 'pending';
+
         if (opts.json) {
           printJson(result);
+          if (!isHealthy) process.exit(1);
           return;
         }
 
@@ -252,9 +255,15 @@ export function registerSandboxCommands(program: Command): void {
 
         console.log(`Status:    ${statusColor(result.status)}`);
         console.log(`Sandbox:   ${result.sandboxId}`);
-        console.log(`Fork:      Chain ${result.forkingDetails?.chainId} @ block ${result.forkingDetails?.blockNumber}`);
+        if (result.forkingDetails?.chainId != null) {
+          console.log(`Fork:      Chain ${result.forkingDetails.chainId} @ block ${result.forkingDetails.blockNumber}`);
+        } else {
+          console.log(`Fork:      (unforked)`);
+        }
         console.log(`RPC URL:   ${chalk.cyan(result.rpcUrl)}`);
         console.log(`Explorer:  ${chalk.cyan(result.explorerUrl)}`);
+
+        if (!isHealthy) process.exit(1);
       } catch (err) {
         exitWithError(err, opts.json ?? false);
       }
