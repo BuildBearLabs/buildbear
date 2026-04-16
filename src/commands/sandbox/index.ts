@@ -120,15 +120,18 @@ export function registerSandboxCommands(program: Command): void {
 
   sandbox
     .command('list')
-    .description('List all sandboxes')
+    .description('List sandboxes with optional filtering')
+    .option('--status <status>', 'Filter by status (e.g. live, dead, pending)')
+    .option('--limit <n>', 'Maximum number of sandboxes to display')
+    .option('--filter <pattern>', 'Filter by sandbox name or ID (case-insensitive substring match)')
     .option('--json', 'Output as JSON')
     .option('--quiet', 'Suppress output except errors')
-    .action(async (opts: { json?: boolean; quiet?: boolean }) => {
+    .action(async (opts: { status?: string; limit?: string; filter?: string; json?: boolean; quiet?: boolean }) => {
       try {
         const containers = await apiRequest<ContainerItem[]>('/user/container/');
 
         // Enrich each container with derived fields
-        const enriched = (containers ?? []).map((c) => {
+        let enriched = (containers ?? []).map((c) => {
           const id = c.sandboxId ?? c.nodeId;
           return {
             ...c,
@@ -137,6 +140,27 @@ export function registerSandboxCommands(program: Command): void {
             rpcUrl: c.rpcUrl ?? (id ? `${RPC_BASE}/${id}` : undefined),
           };
         });
+
+        // Apply --status filter
+        if (opts.status) {
+          const target = opts.status.toLowerCase();
+          enriched = enriched.filter((c) => c.status?.toLowerCase() === target);
+        }
+
+        // Apply --filter (substring match on name or sandboxId)
+        if (opts.filter) {
+          const pattern = opts.filter.toLowerCase();
+          enriched = enriched.filter((c) =>
+            (c.sandboxId?.toLowerCase().includes(pattern)) ||
+            (c.name?.toLowerCase().includes(pattern))
+          );
+        }
+
+        // Apply --limit
+        const limit = opts.limit ? parseInt(opts.limit, 10) : undefined;
+        if (limit != null && !isNaN(limit) && limit > 0) {
+          enriched = enriched.slice(0, limit);
+        }
 
         if (opts.json) {
           printJson(enriched);
