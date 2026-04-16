@@ -1,6 +1,6 @@
 import { getApiKey } from './config.js';
 
-const API_BASE = 'https://api.buildbear.io';
+export const API_BASE = 'https://api.buildbear.io';
 
 interface RequestOptions {
   method?: string;

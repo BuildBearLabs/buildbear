@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { apiRequest } from '../../lib/http.js';
+import { apiRequest, API_BASE } from '../../lib/http.js';
 import { extractSandboxId } from '../../lib/sandbox.js';
 import { printJson, printSuccess, exitWithError } from '../../lib/output.js';
 import chalk from 'chalk';
@@ -101,16 +101,13 @@ export function registerContractCommands(program: Command): void {
 
         let endpoint: string;
         if (verifyType === 'sourcify') {
-          endpoint = `https://rpc.buildbear.io/verify/sourcify/server/${sandboxId}`;
+          endpoint = `${API_BASE}/v1/api/verify/sourcify/server/${sandboxId}`;
         } else if (verifyType === 'etherscan') {
-          endpoint = `https://rpc.buildbear.io/verify/etherscan/${sandboxId}`;
+          endpoint = `${API_BASE}/v1/api/verify/etherscan/${sandboxId}`;
         } else {
           throw new Error(`Unknown verification type '${opts.type}'. Use 'etherscan' or 'sourcify'.`);
         }
 
-        // POST to verification endpoint — body depends on verifier toolchain
-        // This is a passthrough: tools like Foundry/Hardhat send their own body
-        // Here we just confirm the endpoint is reachable with the contract address
         const result = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -119,12 +116,27 @@ export function registerContractCommands(program: Command): void {
         });
 
         const body = await result.text();
+        let parsed: unknown;
+        try { parsed = JSON.parse(body); } catch { parsed = body; }
+
+        // Detect error responses (non-2xx, or body indicates failure)
+        const isErrorStatus = !result.ok;
+        const isBodyError =
+          typeof parsed === 'string'
+            ? /invalid action|error|fail/i.test(parsed)
+            : typeof parsed === 'object' && parsed !== null &&
+              (('status' in parsed && (parsed as Record<string, unknown>).status === '0') ||
+               ('message' in parsed && (parsed as Record<string, unknown>).message === 'NOTOK'));
 
         if (opts.json) {
-          let parsed: unknown;
-          try { parsed = JSON.parse(body); } catch { parsed = body; }
-          printJson({ status: result.status, result: parsed, endpoint });
+          printJson({ status: result.status, ok: !isErrorStatus && !isBodyError, result: parsed, endpoint });
+          if (isErrorStatus || isBodyError) process.exit(1);
           return;
+        }
+
+        if (isErrorStatus || isBodyError) {
+          const detail = typeof parsed === 'string' ? parsed : JSON.stringify(parsed);
+          throw new Error(`Verification failed (${result.status}): ${detail}`);
         }
 
         printSuccess(
