@@ -38,7 +38,10 @@ interface ContainerItem {
   forkingDetails?: { chainId: number; blockNumber?: number };
   chainId?: number;
   createdAt?: string;
+  settings?: { name?: string; [key: string]: unknown };
 }
+
+const RPC_BASE = 'https://rpc.buildbear.io';
 
 interface NetworkOption {
   label: string;
@@ -75,17 +78,21 @@ export function registerSandboxCommands(program: Command): void {
       quiet?: boolean;
     }) => {
       try {
+        if (!opts.network) {
+          throw new Error(
+            `--network is required. Provide a chain ID (e.g. --network 1 for Ethereum Mainnet). Run 'buildbear sandbox networks' to list available chain IDs.`
+          );
+        }
+
         const body: Record<string, unknown> = {};
 
-        if (opts.network) {
-          const chainId = parseInt(opts.network, 10);
-          if (isNaN(chainId)) {
-            throw new Error(
-              `--network requires a numeric chain ID (e.g. 1 for Ethereum Mainnet, 10 for Optimism). Run 'buildbear sandbox networks' to list available chain IDs.`
-            );
-          }
-          body.chainId = chainId;
+        const chainId = parseInt(opts.network, 10);
+        if (isNaN(chainId)) {
+          throw new Error(
+            `--network requires a numeric chain ID (e.g. 1 for Ethereum Mainnet, 10 for Optimism). Run 'buildbear sandbox networks' to list available chain IDs.`
+          );
         }
+        body.chainId = chainId;
 
         if (opts.forkBlock) body.blockNumber = parseInt(opts.forkBlock, 10);
         if (opts.chainId) body.customChainId = parseInt(opts.chainId, 10);
@@ -124,18 +131,29 @@ export function registerSandboxCommands(program: Command): void {
       try {
         const containers = await apiRequest<ContainerItem[]>('/user/container/');
 
+        // Enrich each container with derived fields
+        const enriched = (containers ?? []).map((c) => {
+          const id = c.sandboxId ?? c.nodeId;
+          return {
+            ...c,
+            sandboxId: id,
+            name: c.name ?? c.settings?.name ?? undefined,
+            rpcUrl: c.rpcUrl ?? (id ? `${RPC_BASE}/${id}` : undefined),
+          };
+        });
+
         if (opts.json) {
-          printJson(containers);
+          printJson(enriched);
           return;
         }
 
-        if (!containers || containers.length === 0) {
+        if (enriched.length === 0) {
           if (!opts.quiet) console.log('No sandboxes found.');
           return;
         }
 
-        const rows = containers.map((c) => [
-          c.sandboxId ?? c.nodeId ?? '-',
+        const rows = enriched.map((c) => [
+          c.sandboxId ?? '-',
           c.name ?? '-',
           c.status ?? '-',
           c.rpcUrl ?? '-',
