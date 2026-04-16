@@ -219,6 +219,53 @@ export function registerSandboxCommands(program: Command): void {
       }
     });
 
+  // Probe an RPC URL directly to determine sandbox status when the REST API fails.
+  // The RPC gateway returns error messages that indicate the sandbox state.
+  async function probeSandboxRpc(rpcUrl: string): Promise<string> {
+    try {
+      const response = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_chainId', params: [], id: 1 }),
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      if (response.ok) {
+        const body = await response.json() as { result?: string; error?: { message?: string; code?: number } };
+        if (body.result) return 'live';
+        if (body.error?.message) return parseRpcErrorStatus(body.error.message);
+        return 'unknown';
+      }
+
+      // Non-200 responses — try to extract a meaningful status from the body
+      let errorText = '';
+      try {
+        const body = await response.json() as { error?: string | { message?: string }; message?: string };
+        if (typeof body.error === 'string') errorText = body.error;
+        else if (body.error?.message) errorText = body.error.message;
+        else if (body.message) errorText = body.message;
+      } catch {
+        errorText = response.statusText;
+      }
+
+      if (response.status === 404) return 'not found';
+      return parseRpcErrorStatus(errorText) || `unavailable (HTTP ${response.status})`;
+    } catch {
+      return 'unreachable';
+    }
+  }
+
+  function parseRpcErrorStatus(message: string): string {
+    const lower = message.toLowerCase();
+    if (lower.includes('not found') || lower.includes('does not exist')) return 'not found';
+    if (lower.includes('stopped') || lower.includes('stop')) return 'stopped';
+    if (lower.includes('deleted') || lower.includes('destroy')) return 'deleted';
+    if (lower.includes('dead') || lower.includes('expired')) return 'expired';
+    if (lower.includes('pending') || lower.includes('starting')) return 'pending';
+    if (lower.includes('unavailable')) return 'unavailable';
+    return message.length > 80 ? message.slice(0, 77) + '...' : message;
+  }
+
   // `buildbear status <rpcUrl>` — top-level but logically related to sandbox
   program
     .command('status [rpcUrl]')
@@ -234,36 +281,61 @@ export function registerSandboxCommands(program: Command): void {
           }
         }
         const sandboxId = extractSandboxId(rpcUrl);
-        const result = await apiRequest<SandboxDetailsResponse>(
-          `/v1/buildbear-sandbox/${sandboxId}`
-        );
+        const actualRpcUrl = `${RPC_BASE}/${sandboxId}`;
 
-        const isHealthy = result.status === 'live' || result.status === 'pending';
+        // Try the REST API first for full details
+        let result: SandboxDetailsResponse | null = null;
+        try {
+          result = await apiRequest<SandboxDetailsResponse>(
+            `/v1/buildbear-sandbox/${sandboxId}`
+          );
+        } catch {
+          // API failed — fall through to RPC probe
+        }
 
-        if (opts.json) {
-          printJson(result);
+        // If the API returned data, show it
+        if (result) {
+          const isHealthy = result.status === 'live' || result.status === 'pending';
+
+          if (opts.json) {
+            printJson(result);
+            if (!isHealthy) process.exit(1);
+            return;
+          }
+
+          const statusColor =
+            result.status === 'live'
+              ? chalk.green
+              : result.status === 'pending'
+              ? chalk.yellow
+              : chalk.red;
+
+          console.log(`Status:    ${statusColor(result.status)}`);
+          console.log(`Sandbox:   ${result.sandboxId}`);
+          if (result.forkingDetails?.chainId != null) {
+            console.log(`Fork:      Chain ${result.forkingDetails.chainId} @ block ${result.forkingDetails.blockNumber}`);
+          } else {
+            console.log(`Fork:      (unforked)`);
+          }
+          console.log(`RPC URL:   ${chalk.cyan(result.rpcUrl)}`);
+          console.log(`Explorer:  ${chalk.cyan(result.explorerUrl)}`);
+
           if (!isHealthy) process.exit(1);
           return;
         }
 
-        const statusColor =
-          result.status === 'live'
-            ? chalk.green
-            : result.status === 'pending'
-            ? chalk.yellow
-            : chalk.red;
+        // API didn't return data — probe the RPC URL directly for accurate status
+        const probeStatus = await probeSandboxRpc(actualRpcUrl);
 
-        console.log(`Status:    ${statusColor(result.status)}`);
-        console.log(`Sandbox:   ${result.sandboxId}`);
-        if (result.forkingDetails?.chainId != null) {
-          console.log(`Fork:      Chain ${result.forkingDetails.chainId} @ block ${result.forkingDetails.blockNumber}`);
-        } else {
-          console.log(`Fork:      (unforked)`);
+        if (opts.json) {
+          printJson({ sandboxId, status: probeStatus, rpcUrl: actualRpcUrl });
+          process.exit(1);
         }
-        console.log(`RPC URL:   ${chalk.cyan(result.rpcUrl)}`);
-        console.log(`Explorer:  ${chalk.cyan(result.explorerUrl)}`);
 
-        if (!isHealthy) process.exit(1);
+        console.log(`Status:    ${chalk.red(probeStatus)}`);
+        console.log(`Sandbox:   ${sandboxId}`);
+        console.log(`RPC URL:   ${chalk.cyan(actualRpcUrl)}`);
+        process.exit(1);
       } catch (err) {
         exitWithError(err, opts.json ?? false);
       }
