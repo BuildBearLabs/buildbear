@@ -10,6 +10,13 @@ interface ExplorerResult {
   message?: string;
 }
 
+function assertExplorerSuccess(result: ExplorerResult): void {
+  if (result.status === '0' || result.message === 'NOTOK') {
+    const detail = typeof result.result === 'string' ? result.result : 'Unknown error';
+    throw new Error(`API error: ${detail}`);
+  }
+}
+
 export function registerContractCommands(program: Command): void {
   const contract = program.command('contract').description('Inspect and verify smart contracts');
 
@@ -26,6 +33,8 @@ export function registerContractCommands(program: Command): void {
           `/v1/explorer/${sandboxId}?module=contract&action=getsourcecode&address=${opts.address}`,
           { auth: true }
         );
+
+        assertExplorerSuccess(result);
 
         if (opts.json) {
           printJson(result);
@@ -56,6 +65,8 @@ export function registerContractCommands(program: Command): void {
           `/v1/explorer/${sandboxId}?module=contract&action=getabi&address=${opts.address}`,
           { auth: true }
         );
+
+        assertExplorerSuccess(result);
 
         if (opts.json) {
           printJson(result);
