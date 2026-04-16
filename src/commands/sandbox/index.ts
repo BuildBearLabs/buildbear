@@ -61,7 +61,7 @@ export function registerSandboxCommands(program: Command): void {
   sandbox
     .command('create')
     .description('Create a new sandbox, prints RPC URL on success')
-    .option('--network <chainId>', 'Chain ID of the network to fork (e.g. 1 for Ethereum, 10 for Optimism). Run "buildbear sandbox networks" to list available chain IDs')
+    .option('--network <chainId>', 'Chain ID of the network to fork (e.g. 1 for Ethereum, 10 for Optimism). Omit to create an unforked sandbox. Run "buildbear sandbox networks" to list available chain IDs')
     .option('--fork-block <blockNumber>', 'Block number to fork from')
     .option('--chain-id <customChainId>', 'Custom chain ID for the sandbox')
     .option('--prefund <addresses>', 'Comma-separated addresses to prefund')
@@ -78,21 +78,17 @@ export function registerSandboxCommands(program: Command): void {
       quiet?: boolean;
     }) => {
       try {
-        if (!opts.network) {
-          throw new Error(
-            `--network is required. Provide a chain ID (e.g. --network 1 for Ethereum Mainnet). Run 'buildbear sandbox networks' to list available chain IDs.`
-          );
-        }
-
         const body: Record<string, unknown> = {};
 
-        const chainId = parseInt(opts.network, 10);
-        if (isNaN(chainId)) {
-          throw new Error(
-            `--network requires a numeric chain ID (e.g. 1 for Ethereum Mainnet, 10 for Optimism). Run 'buildbear sandbox networks' to list available chain IDs.`
-          );
+        if (opts.network) {
+          const chainId = parseInt(opts.network, 10);
+          if (isNaN(chainId)) {
+            throw new Error(
+              `--network requires a numeric chain ID (e.g. 1 for Ethereum Mainnet, 10 for Optimism). Run 'buildbear sandbox networks' to list available chain IDs.`
+            );
+          }
+          body.chainId = chainId;
         }
-        body.chainId = chainId;
 
         if (opts.forkBlock) body.blockNumber = parseInt(opts.forkBlock, 10);
         if (opts.chainId) body.customChainId = parseInt(opts.chainId, 10);
