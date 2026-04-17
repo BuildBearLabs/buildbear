@@ -38,7 +38,10 @@ interface ContainerItem {
   forkingDetails?: { chainId: number; blockNumber?: number };
   chainId?: number;
   createdAt?: string;
+  settings?: { name?: string; [key: string]: unknown };
 }
+
+const RPC_BASE = 'https://rpc.buildbear.io';
 
 interface NetworkOption {
   label: string;
@@ -58,7 +61,7 @@ export function registerSandboxCommands(program: Command): void {
   sandbox
     .command('create')
     .description('Create a new sandbox, prints RPC URL on success')
-    .option('--network <chainId>', 'Chain ID of the network to fork (e.g. 1 for Ethereum, 10 for Optimism). Run "buildbear sandbox networks" to list available chain IDs')
+    .option('--network <chainId>', 'Chain ID of the network to fork (e.g. 1 for Ethereum, 10 for Optimism). Omit to create an unforked sandbox. Run "buildbear sandbox networks" to list available chain IDs')
     .option('--fork-block <blockNumber>', 'Block number to fork from')
     .option('--chain-id <customChainId>', 'Custom chain ID for the sandbox')
     .option('--prefund <addresses>', 'Comma-separated addresses to prefund')
@@ -117,25 +120,60 @@ export function registerSandboxCommands(program: Command): void {
 
   sandbox
     .command('list')
-    .description('List all sandboxes')
+    .description('List sandboxes with optional filtering')
+    .option('--status <status>', 'Filter by status (e.g. live, dead, pending)')
+    .option('--limit <n>', 'Maximum number of sandboxes to display')
+    .option('--filter <pattern>', 'Filter by sandbox name or ID (case-insensitive substring match)')
     .option('--json', 'Output as JSON')
     .option('--quiet', 'Suppress output except errors')
-    .action(async (opts: { json?: boolean; quiet?: boolean }) => {
+    .action(async (opts: { status?: string; limit?: string; filter?: string; json?: boolean; quiet?: boolean }) => {
       try {
         const containers = await apiRequest<ContainerItem[]>('/user/container/');
 
+        // Enrich each container with derived fields
+        let enriched = (containers ?? []).map((c) => {
+          const id = c.sandboxId ?? c.nodeId;
+          return {
+            ...c,
+            sandboxId: id,
+            name: c.name ?? c.settings?.name ?? undefined,
+            rpcUrl: c.rpcUrl ?? (id ? `${RPC_BASE}/${id}` : undefined),
+          };
+        });
+
+        // Apply --status filter
+        if (opts.status) {
+          const target = opts.status.toLowerCase();
+          enriched = enriched.filter((c) => c.status?.toLowerCase() === target);
+        }
+
+        // Apply --filter (substring match on name or sandboxId)
+        if (opts.filter) {
+          const pattern = opts.filter.toLowerCase();
+          enriched = enriched.filter((c) =>
+            (c.sandboxId?.toLowerCase().includes(pattern)) ||
+            (c.name?.toLowerCase().includes(pattern))
+          );
+        }
+
+        // Apply --limit
+        const limit = opts.limit ? parseInt(opts.limit, 10) : undefined;
+        if (limit != null && !isNaN(limit) && limit > 0) {
+          enriched = enriched.slice(0, limit);
+        }
+
         if (opts.json) {
-          printJson(containers);
+          printJson(enriched);
           return;
         }
 
-        if (!containers || containers.length === 0) {
+        if (enriched.length === 0) {
           if (!opts.quiet) console.log('No sandboxes found.');
           return;
         }
 
-        const rows = containers.map((c) => [
-          c.sandboxId ?? c.nodeId ?? '-',
+        const rows = enriched.map((c) => [
+          c.sandboxId ?? '-',
           c.name ?? '-',
           c.status ?? '-',
           c.rpcUrl ?? '-',
@@ -205,6 +243,53 @@ export function registerSandboxCommands(program: Command): void {
       }
     });
 
+  // Probe an RPC URL directly to determine sandbox status when the REST API fails.
+  // The RPC gateway returns error messages that indicate the sandbox state.
+  async function probeSandboxRpc(rpcUrl: string): Promise<string> {
+    try {
+      const response = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_chainId', params: [], id: 1 }),
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      if (response.ok) {
+        const body = await response.json() as { result?: string; error?: { message?: string; code?: number } };
+        if (body.result) return 'live';
+        if (body.error?.message) return parseRpcErrorStatus(body.error.message);
+        return 'unknown';
+      }
+
+      // Non-200 responses — try to extract a meaningful status from the body
+      let errorText = '';
+      try {
+        const body = await response.json() as { error?: string | { message?: string }; message?: string };
+        if (typeof body.error === 'string') errorText = body.error;
+        else if (body.error?.message) errorText = body.error.message;
+        else if (body.message) errorText = body.message;
+      } catch {
+        errorText = response.statusText;
+      }
+
+      if (response.status === 404) return 'not found';
+      return parseRpcErrorStatus(errorText) || `unavailable (HTTP ${response.status})`;
+    } catch {
+      return 'unreachable';
+    }
+  }
+
+  function parseRpcErrorStatus(message: string): string {
+    const lower = message.toLowerCase();
+    if (lower.includes('not found') || lower.includes('does not exist')) return 'not found';
+    if (lower.includes('stopped') || lower.includes('stop')) return 'stopped';
+    if (lower.includes('deleted') || lower.includes('destroy')) return 'deleted';
+    if (lower.includes('dead') || lower.includes('expired')) return 'expired';
+    if (lower.includes('pending') || lower.includes('starting')) return 'pending';
+    if (lower.includes('unavailable')) return 'unavailable';
+    return message.length > 80 ? message.slice(0, 77) + '...' : message;
+  }
+
   // `buildbear status <rpcUrl>` — top-level but logically related to sandbox
   program
     .command('status [rpcUrl]')
@@ -220,27 +305,64 @@ export function registerSandboxCommands(program: Command): void {
           }
         }
         const sandboxId = extractSandboxId(rpcUrl);
-        const result = await apiRequest<SandboxDetailsResponse>(
-          `/v1/buildbear-sandbox/${sandboxId}`
-        );
+        const actualRpcUrl = `${RPC_BASE}/${sandboxId}`;
 
-        if (opts.json) {
-          printJson(result);
+        // Try the REST API first for full details
+        let result: SandboxDetailsResponse | null = null;
+        try {
+          result = await apiRequest<SandboxDetailsResponse>(
+            `/v1/buildbear-sandbox/${sandboxId}`
+          );
+        } catch {
+          // API failed — fall through to RPC probe
+        }
+
+        // If the API returned data, show it
+        if (result) {
+          const isHealthy = result.status === 'live' || result.status === 'pending';
+
+          if (opts.json) {
+            printJson(result);
+            if (!isHealthy) process.exit(1);
+            return;
+          }
+
+          const statusColor =
+            result.status === 'live'
+              ? chalk.green
+              : result.status === 'pending'
+              ? chalk.yellow
+              : chalk.red;
+
+          console.log(`Status:    ${statusColor(result.status)}`);
+          console.log(`Sandbox:   ${result.sandboxId}`);
+          if (result.forkingDetails?.chainId != null) {
+            console.log(`Fork:      Chain ${result.forkingDetails.chainId} @ block ${result.forkingDetails.blockNumber}`);
+          } else {
+            console.log(`Fork:      (unforked)`);
+          }
+          console.log(`RPC URL:   ${chalk.cyan(result.rpcUrl)}`);
+          console.log(`Explorer:  ${chalk.cyan(result.explorerUrl)}`);
+
+          if (!isHealthy) process.exit(1);
           return;
         }
 
-        const statusColor =
-          result.status === 'live'
-            ? chalk.green
-            : result.status === 'pending'
-            ? chalk.yellow
-            : chalk.red;
+        // API didn't return data — probe the RPC URL directly for accurate status
+        const probeStatus = await probeSandboxRpc(actualRpcUrl);
+        const probeHealthy = probeStatus === 'live' || probeStatus === 'pending';
 
-        console.log(`Status:    ${statusColor(result.status)}`);
-        console.log(`Sandbox:   ${result.sandboxId}`);
-        console.log(`Fork:      Chain ${result.forkingDetails?.chainId} @ block ${result.forkingDetails?.blockNumber}`);
-        console.log(`RPC URL:   ${chalk.cyan(result.rpcUrl)}`);
-        console.log(`Explorer:  ${chalk.cyan(result.explorerUrl)}`);
+        if (opts.json) {
+          printJson({ sandboxId, status: probeStatus, rpcUrl: actualRpcUrl });
+          if (!probeHealthy) process.exit(1);
+          return;
+        }
+
+        const probeColor = probeHealthy ? chalk.green : chalk.red;
+        console.log(`Status:    ${probeColor(probeStatus)}`);
+        console.log(`Sandbox:   ${sandboxId}`);
+        console.log(`RPC URL:   ${chalk.cyan(actualRpcUrl)}`);
+        if (!probeHealthy) process.exit(1);
       } catch (err) {
         exitWithError(err, opts.json ?? false);
       }

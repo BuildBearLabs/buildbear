@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { rpcRequest } from '../../lib/http.js';
-import { checkSandboxLive } from '../../lib/sandbox.js';
+import { checkSandboxLive, validateEthAddress } from '../../lib/sandbox.js';
 import { printJson, printSuccess, exitWithError } from '../../lib/output.js';
 import { getProjectRpcUrl } from '../../lib/config.js';
 
@@ -25,6 +25,7 @@ export function registerFaucetCommands(program: Command): void {
             throw new Error('No RPC URL provided and no .buildbear.json found in current directory. Run buildbear init or pass an RPC URL.');
           }
         }
+        validateEthAddress(opts.address, '--address');
         await checkSandboxLive(rpcUrl);
         // Convert ether to wei (use BigInt to avoid float precision issues)
         const amountEther = parseFloat(opts.amount);
@@ -72,6 +73,8 @@ export function registerFaucetCommands(program: Command): void {
             throw new Error('No RPC URL provided and no .buildbear.json found in current directory. Run buildbear init or pass an RPC URL.');
           }
         }
+        validateEthAddress(opts.address, '--address');
+        validateEthAddress(opts.token, '--token');
         await checkSandboxLive(rpcUrl);
         // Use BigInt arithmetic for token amounts to avoid float precision loss
         const amountNum = parseFloat(opts.amount);

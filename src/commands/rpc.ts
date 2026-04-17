@@ -9,15 +9,18 @@ export function registerRpcCommand(program: Command): void {
   program
     .command('rpc [rpcUrl]')
     .description('Direct JSON-RPC passthrough to sandbox')
-    .requiredOption('--method <method>', 'JSON-RPC method name')
+    .option('--method <method>', 'JSON-RPC method name')
     .option('--params <json>', 'JSON array of params (or @file.json to read from file)', '[]')
     .option('--json', 'Output as JSON (always true for rpc, included for consistency)')
     .option('--quiet', 'Suppress output except errors')
     .action(async (
       rpcUrl: string | undefined,
-      opts: { method: string; params: string; json?: boolean; quiet?: boolean }
+      opts: { method?: string; params: string; json?: boolean; quiet?: boolean }
     ) => {
       try {
+        if (!opts.method) {
+          throw new Error('--method is required. Example: buildbear rpc <url> --method eth_blockNumber');
+        }
         if (!rpcUrl) {
           rpcUrl = getProjectRpcUrl() ?? undefined;
           if (!rpcUrl) {
