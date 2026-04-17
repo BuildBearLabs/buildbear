@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { apiRequest, API_BASE } from '../../lib/http.js';
+import { apiRequest, ApiError, API_BASE } from '../../lib/http.js';
 import { extractSandboxId } from '../../lib/sandbox.js';
 import { printJson, printSuccess, exitWithError } from '../../lib/output.js';
 import chalk from 'chalk';
@@ -15,6 +15,14 @@ function assertExplorerSuccess(result: ExplorerResult): void {
     const detail = typeof result.result === 'string' ? result.result : 'Unknown error';
     throw new Error(`API error: ${detail}`);
   }
+}
+
+function exitNotVerified(address: string, jsonMode: boolean): never {
+  if (jsonMode) {
+    exitWithError(new Error(`Contract ${address} is not verified on this sandbox.`), true);
+  }
+  console.error(chalk.yellow(`Contract ${address} is not verified on this sandbox.`));
+  process.exit(1);
 }
 
 export function registerContractCommands(program: Command): void {
@@ -48,6 +56,10 @@ export function registerContractCommands(program: Command): void {
         console.log(chalk.cyan(`Source code for ${opts.address}:`));
         console.log(source);
       } catch (err) {
+        const isNotVerified =
+          (err instanceof Error && /not verified|source code not verified/i.test(err.message)) ||
+          (err instanceof ApiError && err.statusCode === 500);
+        if (isNotVerified) exitNotVerified(opts.address, opts.json ?? false);
         exitWithError(err, opts.json ?? false);
       }
     });
@@ -80,6 +92,10 @@ export function registerContractCommands(program: Command): void {
         console.log(chalk.cyan(`ABI for ${opts.address}:`));
         console.log(abi);
       } catch (err) {
+        const isNotVerified =
+          (err instanceof Error && /not verified|source code not verified/i.test(err.message)) ||
+          (err instanceof ApiError && err.statusCode === 500);
+        if (isNotVerified) exitNotVerified(opts.address, opts.json ?? false);
         exitWithError(err, opts.json ?? false);
       }
     });
