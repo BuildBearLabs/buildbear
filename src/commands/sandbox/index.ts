@@ -350,16 +350,19 @@ export function registerSandboxCommands(program: Command): void {
 
         // API didn't return data — probe the RPC URL directly for accurate status
         const probeStatus = await probeSandboxRpc(actualRpcUrl);
+        const probeHealthy = probeStatus === 'live' || probeStatus === 'pending';
 
         if (opts.json) {
           printJson({ sandboxId, status: probeStatus, rpcUrl: actualRpcUrl });
-          process.exit(1);
+          if (!probeHealthy) process.exit(1);
+          return;
         }
 
-        console.log(`Status:    ${chalk.red(probeStatus)}`);
+        const probeColor = probeHealthy ? chalk.green : chalk.red;
+        console.log(`Status:    ${probeColor(probeStatus)}`);
         console.log(`Sandbox:   ${sandboxId}`);
         console.log(`RPC URL:   ${chalk.cyan(actualRpcUrl)}`);
-        process.exit(1);
+        if (!probeHealthy) process.exit(1);
       } catch (err) {
         exitWithError(err, opts.json ?? false);
       }

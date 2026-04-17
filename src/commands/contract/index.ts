@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { apiRequest, ApiError, API_BASE } from '../../lib/http.js';
-import { extractSandboxId } from '../../lib/sandbox.js';
+import { extractSandboxId, validateEthAddress } from '../../lib/sandbox.js';
+import { getApiKey } from '../../lib/config.js';
 import { printJson, printSuccess, exitWithError } from '../../lib/output.js';
 import chalk from 'chalk';
 
@@ -36,6 +37,7 @@ export function registerContractCommands(program: Command): void {
     .option('--quiet', 'Suppress output except errors')
     .action(async (rpcUrl: string, opts: { address: string; json?: boolean; quiet?: boolean }) => {
       try {
+        validateEthAddress(opts.address, '--address');
         const sandboxId = extractSandboxId(rpcUrl);
         const result = await apiRequest<ExplorerResult>(
           `/v1/explorer/${sandboxId}?module=contract&action=getsourcecode&address=${opts.address}`,
@@ -72,6 +74,7 @@ export function registerContractCommands(program: Command): void {
     .option('--quiet', 'Suppress output except errors')
     .action(async (rpcUrl: string, opts: { address: string; json?: boolean; quiet?: boolean }) => {
       try {
+        validateEthAddress(opts.address, '--address');
         const sandboxId = extractSandboxId(rpcUrl);
         const result = await apiRequest<ExplorerResult>(
           `/v1/explorer/${sandboxId}?module=contract&action=getabi&address=${opts.address}`,
@@ -112,6 +115,7 @@ export function registerContractCommands(program: Command): void {
       opts: { address: string; type: string; json?: boolean; quiet?: boolean }
     ) => {
       try {
+        validateEthAddress(opts.address, '--address');
         const sandboxId = extractSandboxId(rpcUrl);
         const verifyType = opts.type.toLowerCase();
 
@@ -126,7 +130,10 @@ export function registerContractCommands(program: Command): void {
 
         const result = await fetch(endpoint, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${getApiKey()}`,
+          },
           body: JSON.stringify({ address: opts.address }),
           signal: AbortSignal.timeout(30_000),
         });

@@ -1,6 +1,6 @@
 {
   "name": "buildbear",
-  "version": "1.1.0",
+  "version": "0.1.1",
   "description": "BuildBear CLI — manage sandboxes, faucets, snapshots, and contracts from the terminal",
   "main": "dist/index.js",
   "bin": {
